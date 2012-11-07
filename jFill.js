@@ -1,33 +1,100 @@
 /* vim: set expandtab sts=4 ts=4 sw=4 foldenable fdm=marker: */
 (function($) {
     "use strict";
-    $.fn.jFill = function(images, event_bind) {
-        var container = this,
+    $.fn.jFill = function(options) {
+        var i,
+            container = this,
             slide = $('<div class="jFill-slide" />'),
             image = $('<img class="jFill-image" />'),
             image_holder = $('<div class="jFill-image-holder" />'),
+            // {{{ get_best_size(sizes, dims)
+            get_best_size = function(sizes, dims){
+                var default_src = '',
+                    has_gte_width = false,
+                    has_lte_width = false,
+                    src = '',
+                    i;
+                // currently priority is based on ordering
+                for (i in sizes)
+                {
+                    if (sizes.hasOwnProperty(i) && sizes[i].hasOwnProperty('src'))
+                    {
+                        has_lte_width = sizes[i].hasOwnProperty('lte_width');
+                        has_gte_width = sizes[i].hasOwnProperty('gte_width');
+                        if (has_lte_width)
+                        {
+                            src = dims.width <= sizes[i].lte_width
+                                ? sizes[i].src
+                                : '';
+                            if (has_gte_width)
+                            {
+                                src = src.length && dims.width >= sizes[i].gte_width
+                                    ? sizes[i].src
+                                    : '';
+                            }
+                        }
+                        else if (has_gte_width)
+                        {
+                            src = dims.width >= sizes[i].gte_width
+                                ? sizes[i].src
+                                : '';
+                        }
+                        else
+                        {
+                            default_src = sizes[i].src;
+                        }
+                        if (src.length)
+                        {
+                            break;
+                        }
+                    }
+                }
+                return src === '' ? default_src : src;
+            },
+            // }}}
             // {{{ create_slides(srcs)
             create_slides = function(srcs){
-                var new_slide, i;
+                var new_slide, 
+                    sizes, 
+                    src, 
+                    i, 
+                    container_dims;
                 for (i in srcs)
                 {
                     if (srcs.hasOwnProperty(i))
                     {
                         new_slide = slide.clone(true);
-                        container
-                            .append(
-                                new_slide
-                                    .append(
-                                        image_holder
-                                            .clone(true)
-                                            .append(
-                                                image
-                                                    .clone(true)
-                                                    .data('slide', new_slide)
-                                                    .attr('src', srcs[i])
-                                            )
-                                    )
-                            );
+                        src = sizes = srcs[i];
+                        if (typeof sizes === 'object')
+                        {
+                            container_dims = {
+                                height: container.height(),
+                                width: container.width()
+                            };
+                            src = get_best_size(sizes, container_dims);
+                            new_slide
+                                .data('sizes', sizes)
+                                .data('srcs', [src]);
+                        }
+                        // {{{ add image to dom if src is string
+                        if (typeof src === 'string')
+                        {
+                            container
+                                .append(
+                                    new_slide
+                                        .append(
+                                            image_holder
+                                                .clone(true)
+                                                .append(
+                                                    image
+                                                        .clone(true)
+                                                        .data('slide', new_slide)
+                                                        .attr('src', src)
+                                                )
+                                        )
+                                );
+                        }
+                        // }}}
                     }
                 }
             },
@@ -50,13 +117,18 @@
             // }}}
             // {{{ resize_slide()
             resize_slide = function(){
+                // {{{ data prep
                 var el = $(this),
                     el_dims = {
                         height: el.data('height'),
                         width: el.data('width')
                     },
-                    container_height = container.height(),
-                    container_width = container.width(),
+                    el_sizes = el.data('sizes'),
+                    el_srcs = el.data('srcs'),
+                    container_dims = {
+                        height: container.height(),
+                        width: container.width()
+                    },
                     image = $('img', el),
                     image_dims = { 
                         height: 0, 
@@ -67,14 +139,16 @@
                     image_ratio = el_dims.height / el_dims.width,
                     image_is_portrait = image_ratio > 1,
                     image_stretch_to_width = {
-                        height: container_width * image_ratio,
-                        width: container_width
+                        height: container_dims.width * image_ratio,
+                        width: container_dims.width
                     },
                     image_stretch_to_height = {
-                        height: container_height,
-                        width: el_dims.width * (container_height / el_dims.height)
+                        height: container_dims.height,
+                        width: el_dims.width * (container_dims.height / el_dims.height)
                     },
-                    dim_diff = 0;
+                    dim_diff = 0,
+                    new_src = '';
+                // }}}
                 // {{{ properly resize the image
                 if (image_is_portrait)
                 {
@@ -82,10 +156,10 @@
                 }
                 else 
                 {
-                    if ((container_height - el_dims.height) < (container_width - el_dims.width))
+                    if ((container_dims.height - el_dims.height) < (container_dims.width - el_dims.width))
                     {
                         image_dims = image_stretch_to_height;
-                        if (image_dims.width < container_width)
+                        if (image_dims.width < container_dims.width)
                         {
                             image_dims = image_stretch_to_width;
                         }
@@ -93,7 +167,7 @@
                     else
                     {
                         image_dims = image_stretch_to_width;
-                        if (image_dims.height < container_height)
+                        if (image_dims.height < container_dims.height)
                         {
                             image_dims = image_stretch_to_height;
                         }
@@ -102,7 +176,7 @@
                 // }}}
                 // {{{ properly position the image to work like background cover
                 // calculate height / top offset
-                dim_diff = container_height - image_dims.height;
+                dim_diff = container_dims.height - image_dims.height;
                 el_dims.height = image_dims.height;
                 image_dims.top = 0;
                 if (dim_diff < 0)
@@ -112,7 +186,7 @@
                 }
 
                 // calculate width / left offset
-                dim_diff = container_width - image_dims.width;
+                dim_diff = container_dims.width - image_dims.width;
                 el_dims.width = image_dims.width;
                 image_dims.left = 0;
                 if (dim_diff < 0)
@@ -126,8 +200,39 @@
 
                 // apply dimensions to slide element
                 el.css(el_dims);
+
+                // update the src with the best image
+                if ($.type(el_sizes) === 'array')
+                {
+                    new_src = get_best_size(
+                        el_sizes,
+                        { 
+                            height: container_dims.height,
+                            width: container_dims.width
+                        }
+                    );
+                    if (new_src !== image.attr('src'))
+                    {
+                        image.attr('src', new_src);
+                        if ($.inArray(new_src, el_srcs))
+                        {
+                            el.trigger('resize_jfill');
+                        }
+                        else
+                        {
+                            el_srcs.push(new_src);
+                            el.data('srcs', el_srcs);
+                        }
+                    }
+                }
             };
             // }}}
+        // {{{ container setup
+        container
+            .css({
+                overflow: 'hidden'
+            });
+        // }}}
         // {{{ slide setup
         slide
             .css({
@@ -142,6 +247,7 @@
             .css({
                 position: 'absolute'
             })
+            .data('loaded', false)
             .on({
                 load: function(){
                     var el = $(this),
@@ -153,15 +259,19 @@
                             .data('height', el.height())
                             .data('width', el.width())
                             .trigger('resize_jfill');
-                        if (typeof slides === 'undefined')
+                        if (!el.data('loaded'))
                         {
-                            slides = [slide];
+                            if (typeof slides === 'undefined')
+                            {
+                                slides = [slide];
+                            }
+                            else
+                            {
+                                slides.push(slide);
+                            }
+                            container.data('jfill_slides', slides);
+                            el.data('loaded', true);
                         }
-                        else
-                        {
-                            slides.push(slide);
-                        }
-                        container.data('jfill_slides', slides);
                     }
                 }
             });
@@ -172,22 +282,44 @@
                 position: 'relative'
             });
         // }}}
-        if (typeof images === 'string')
+        if (typeof options === 'string')
         {
-            create_slides([images]);
+            create_slides([options]);
         }
-        else if (typeof images === 'object')
+        else if (typeof options === 'object')
         {
-            create_slides(images);
+            if (options.hasOwnProperty('images') && $.type(options.images) === 'array')
+            {
+                create_slides(options.images);
+                // {{{ add event bindings
+                if (options.hasOwnProperty('event_binds'))
+                {
+                    if (typeof options.event_binds === 'string')
+                    {
+                        this.bind(options.event_binds, resize_all_slides);
+                    }
+                    else if ($.type(options.event_binds) === 'array')
+                    {
+                        for (i in options.event_binds)
+                        {
+                            if (options.event_binds.hasOwnProperty(i))
+                            {
+                                this.bind(options.event_binds[i], resize_all_slides);
+                            }
+                        }
+                    }
+                }
+                // }}}
+            }
+            else
+            {
+                $.error('Missing/bad images key');
+            }
         }
         else
         {
             $.error('Bad parameter passed to jQuery.jFill');
             return;
-        }
-        if (typeof event_bind === 'string')
-        {
-            return this.bind(event_bind, resize_all_slides);
         }
         return this;
     };
